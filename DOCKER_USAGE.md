@@ -14,7 +14,7 @@ docker run -it \
   rc-unlock \
   -i /inventory/all.yml \
   -k /secrets/vault.kdbx \
-  -e "root - test initramfs"
+  -e "LUKS unlock"
 
 ### Using environment variables for all configuration:
 docker run -it \
@@ -22,7 +22,7 @@ docker run -it \
   -v /path/to/vault.kdbx:/secrets/vault.kdbx \
   -e UR_INVENTORY=/inventory/all.yml \
   -e UR_KDBXFILE=/secrets/vault.kdbx \
-  -e UR_CDB_ENTRY="root - test initramfs" \
+  -e UR_CDB_ENTRY="LUKS unlock" \
   -e UR_CDB_PW="your_password" \
   -e UR_INVENTORY_GROUP=all \
   rc-unlock
@@ -34,7 +34,7 @@ docker run -it \
   rc-unlock \
   -i /inventory/all.yml \
   -k /secrets/vault.kdbx \
-  -e "root - test initramfs"
+  -e "LUKS unlock"
 
 ## Docker Compose Example
 
@@ -48,7 +48,7 @@ services:
     environment:
       - UR_INVENTORY=/inventory/all.yml
       - UR_KDBXFILE=/secrets/vault.kdbx
-      - UR_CDB_ENTRY=root - test initramfs
+      - UR_CDB_ENTRY=LUKS unlock
       - UR_CDB_PW=${UR_CDB_PW}
       - UR_INVENTORY_GROUP=all
       - UR_DELAY=30

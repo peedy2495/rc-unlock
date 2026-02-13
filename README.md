@@ -58,7 +58,7 @@ The tool requires a KeePass database (.kdbx) with a specific entry structure. Ea
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Entry Title** | Unique identifier for this entry (used with `-e` flag) | `root - test initramfs` |
+| **Entry Title** | Unique identifier for this entry (used with `-e` flag) | `LUKS unlock` |
 | **Username** | SSH username for connecting to the target host | `root` |
 | **Password** | LUKS disk encryption password | `MySecretPassword0` |
 | **Attachment** | SSH private key file (must start with `id_`) | `id_ed25519`, `id_rsa`, etc. |
@@ -91,7 +91,7 @@ The tool requires a KeePass database (.kdbx) with a specific entry structure. Ea
 #### Example Entry
 
 ```
-Title:    root - test initramfs
+Title:    LUKS unlock
 Username: root
 Password: MySecretLUKSPassword
 
@@ -156,7 +156,7 @@ all:
 python rc-unlock.py \
   -i /path/to/inventory.yml \
   -k /path/to/vault.kdbx \
-  -e "root - test initramfs"
+  -e "LUKS unlock"
 ```
 
 #### With Environment Variables (No Password Prompt)
@@ -164,7 +164,7 @@ python rc-unlock.py \
 ```bash
 export UR_INVENTORY="/path/to/inventory.yml"
 export UR_KDBXFILE="/path/to/vault.kdbx"
-export UR_CDB_ENTRY="root - test initramfs"
+export UR_CDB_ENTRY="LUKS unlock"
 export UR_CDB_PW="your_password"
 export UR_DELAY=60
 
@@ -178,7 +178,7 @@ python rc-unlock.py \
   -i inventory.yml \
   -g cc \
   -k vault.kdbx \
-  -e "root - test initramfs" \
+  -e "LUKS unlock" \
   -d 60
 ```
 
@@ -261,9 +261,9 @@ Host 192.168.0.223: ✅ Unlock successful!
 ```
 $ export UR_CDB_PW="mypassword"
 $ export UR_DELAY=60
-$ python rc-unlock.py -i inventory.yml -k vault.kdbx -e "root - test initramfs"
+$ python rc-unlock.py -i inventory.yml -k vault.kdbx -e "LUKS unlock"
 Using password from UR_CDB_PW environment variable
-✅ Credential database entry 'root - test initramfs' loaded successfully.
+✅ Credential database entry 'LUKS unlock' loaded successfully.
 
 📋 Found hosts: 1
      server1 @ 192.168.0.222 [all/servers]
