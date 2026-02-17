@@ -30,6 +30,7 @@ ENV_VARS = {
     'kdbxfile': 'UR_KDBXFILE',
     'entry': 'UR_CDB_ENTRY',
     'password': 'UR_CDB_PW',
+    'password_file': 'UR_CDB_PW_FILE',
     'delay': 'UR_DELAY',
 }
 
@@ -101,9 +102,11 @@ def main() -> int:
 def parse_arguments() -> argparse.Namespace:
     """Parse and return command line arguments."""
     password_help = """
-The password for the credential database can be provided in two ways:
-  1. Enter it manually when prompted
-  2. Set the UR_CDB_PW environment variable (takes precedence over manual input)
+The password for the credential database can be provided in three ways:
+  1. Docker secret file (recommended): Mount secret to /run/secrets/ur_cdb_pw
+  2. Environment variable: Set UR_CDB_PW (not recommended for production)
+  3. Enter it manually when prompted (most secure but requires interaction)
+The methods are checked in order of security (file first, then env, then prompt).
 """
     
     parser = argparse.ArgumentParser(
@@ -276,11 +279,38 @@ def get_credentials(db_path: str, entry_title: str) -> Credentials:
 
 
 def get_db_password() -> str:
-    """Get credential database password from environment or prompt."""
+    """Get credential database password from Docker secret, environment, or prompt."""
+    # Check for custom password file path
+    password_file = os.environ.get(ENV_VARS['password_file'])
+    if password_file and os.path.exists(password_file):
+        try:
+            with open(password_file, 'r') as f:
+                password = f.read().strip()
+            if password:
+                print("Using password from secret file")
+                return password
+        except (IOError, OSError) as e:
+            print(f"⚠️  Warning: Could not read password file {password_file}: {e}")
+    
+    # Check for default Docker secret location
+    default_secret_path = '/run/secrets/ur_cdb_pw'
+    if os.path.exists(default_secret_path):
+        try:
+            with open(default_secret_path, 'r') as f:
+                password = f.read().strip()
+            if password:
+                print("Using password from Docker secret")
+                return password
+        except (IOError, OSError) as e:
+            print(f"⚠️  Warning: Could not read Docker secret: {e}")
+    
+    # Fallback to environment variable (for backward compatibility)
     password = os.environ.get(ENV_VARS['password'])
     if password:
         print("Using password from UR_CDB_PW environment variable")
         return password
+    
+    # Prompt user
     return getpass("Enter credential database master password: ")
 
 

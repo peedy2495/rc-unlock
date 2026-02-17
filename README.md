@@ -146,7 +146,13 @@ all:
 | `UR_DELAY` | Delay between iterations in seconds (default: 30) |
 | `UR_KDBXFILE` | Path to KeePass database |
 | `UR_CDB_ENTRY` | KeePass entry title |
-| `UR_CDB_PW` | KeePass master password (optional, will prompt if not set) |
+| `UR_CDB_PW_FILE` | Path to password file (for Docker secrets, optional) |
+| `UR_CDB_PW` | KeePass master password (optional, not recommended for production) |
+
+**Password Priority Order:**
+1. **Docker Secret File** (`/run/secrets/ur_cdb_pw` or `UR_CDB_PW_FILE`) - Most secure, recommended for production
+2. **Environment Variable** (`UR_CDB_PW`) - Convenient but visible in process lists
+3. **Interactive Prompt** - Most secure but requires manual intervention
 
 ### Basic Usage
 
@@ -187,11 +193,23 @@ python rc-unlock.py \
 For detailed Docker instructions including:
 - Building the image
 - Running with volume mounts
+- **Using Docker Secrets (recommended)**
 - Using Docker Compose
 - Environment variable configuration
 - Multiple usage examples
 
 **See [DOCKER_USAGE.md](DOCKER_USAGE.md)** for complete documentation.
+
+Quick start with Docker secrets:
+```bash
+# Create password file
+mkdir -p secrets
+echo "your_password" > secrets/password.txt
+chmod 600 secrets/password.txt
+
+# Run with docker compose
+docker compose up -d
+```
 
 ## How It Works
 
@@ -290,10 +308,12 @@ The tool handles special exit codes from `cryptroot-unlock`:
 ## Security Considerations
 
 - **Never commit** your KeePass database or passwords
-- Use environment variables for passwords in CI/CD pipelines
+- **Use Docker secrets** for production deployments (see [DOCKER_USAGE.md](DOCKER_USAGE.md))
+- Environment variables (`UR_CDB_PW`) are visible in `docker inspect` and process lists - avoid in production
 - The `.gitignore` excludes `*.kdbx`, `secrets/`, and environment files
 - Docker image runs as non-root user
 - SSH keys are never written to disk, kept in memory only
+- Set restrictive permissions on password files: `chmod 600 password.txt`
 
 ## Troubleshooting
 

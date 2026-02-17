@@ -4,9 +4,37 @@
 
 docker build -t rc-unlock .
 
-## Run with mounted volumes
+## Run with Docker Secrets (Recommended)
 
-### Basic usage with all files mounted:
+### Using Docker secrets (most secure):
+
+# Create a secret
+echo "your_password" | docker secret create ur_cdb_pw -
+
+# Run with secret
+docker run -it \
+  -v /path/to/inventory:/inventory \
+  -v /path/to/vault.kdbx:/secrets/vault.kdbx \
+  --secret ur_cdb_pw \
+  rc-unlock \
+  -i /inventory/all.yml \
+  -k /secrets/vault.kdbx \
+  -e "LUKS unlock"
+
+### Using custom secret file path:
+docker run -it \
+  -v /path/to/inventory:/inventory \
+  -v /path/to/vault.kdbx:/secrets/vault.kdbx \
+  -v /path/to/password.txt:/secrets/password.txt:ro \
+  -e UR_CDB_PW_FILE=/secrets/password.txt \
+  rc-unlock \
+  -i /inventory/all.yml \
+  -k /secrets/vault.kdbx \
+  -e "LUKS unlock"
+
+## Run with Environment Variables (Not Recommended for Production)
+
+### Basic usage with environment variable:
 docker run -it \
   -v /path/to/inventory:/inventory \
   -v /path/to/vault.kdbx:/secrets/vault.kdbx \
@@ -36,7 +64,44 @@ docker run -it \
   -k /secrets/vault.kdbx \
   -e "LUKS unlock"
 
-## Docker Compose Example
+## Docker Compose Examples
+
+### Using Docker secrets (Recommended):
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  rc-unlock:
+    build: .
+    volumes:
+      - ./inventory:/inventory:ro
+      - ./secrets:/secrets:ro
+    environment:
+      - UR_INVENTORY=/inventory/all.yml
+      - UR_KDBXFILE=/secrets/vault.kdbx
+      - UR_CDB_ENTRY=LUKS unlock
+      - UR_INVENTORY_GROUP=all
+      - UR_DELAY=30
+    secrets:
+      - ur_cdb_pw
+    restart: unless-stopped
+
+secrets:
+  ur_cdb_pw:
+    file: ./secrets/password.txt
+```
+
+Then run:
+```bash
+# Create the password file
+echo "your_password" > ./secrets/password.txt
+
+# Start the service
+docker compose up -d
+```
+
+### Using environment variables (not recommended for production):
 
 ```yaml
 services:
@@ -55,9 +120,29 @@ services:
     restart: unless-stopped
 ```
 
-## Notes
+## Security Notes
 
-- Mount your inventory file as a volume
-- Mount your KeePass database as a volume
-- Use environment variables for passwords (safer) or use -it for interactive mode
-- The container runs as non-root user for security
+- **Docker secrets** are the recommended approach for production environments
+- **Environment variables** are visible in `docker inspect` and process lists, avoid in production
+- **Interactive mode** is the most secure but requires manual intervention
+- Mount volumes as read-only (`:ro`) when possible
+- The container runs as non-root user for additional security
+- Always protect your password files with appropriate filesystem permissions (600)
+- Remove password files from shell history: `history -c` or prefix commands with a space
+
+## Migration from Environment Variables to Secrets
+
+To migrate from using `UR_CDB_PW` environment variable to Docker secrets:
+
+1. Create a password file:
+   ```bash
+   mkdir -p secrets
+   echo "your_password" > secrets/password.txt
+   chmod 600 secrets/password.txt
+   ```
+
+2. Use the docker-compose.yml with secrets configuration (see above)
+
+3. Remove `UR_CDB_PW` from your environment
+
+4. The script will automatically detect and use the secret file
