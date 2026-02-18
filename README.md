@@ -364,11 +364,3 @@ The script is organized into logical sections:
 6. **Credential Database**: KeePass integration
 7. **SSH Operations**: Connection and unlock logic
 8. **Utilities**: Helper functions
-
-## License
-
-[Your License Here]
-
-## Contributing
-
-[Your Contributing Guidelines Here]
