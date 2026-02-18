@@ -2,7 +2,64 @@
 
 ## Build the image
 
+### Standard build:
 docker build -t rc-unlock .
+
+### Build with BuildKit (recommended):
+```bash
+DOCKER_BUILDKIT=1 docker build -t rc-unlock:secure .
+```
+
+### Build with custom labels:
+```bash
+DOCKER_BUILDKIT=1 docker build \
+  --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+  --build-arg VERSION=$(git describe --tags --always) \
+  --build-arg VCS_REF=$(git rev-parse HEAD) \
+  -t rc-unlock:secure .
+```
+
+## Security Hardening (New in v2.0+)
+
+The Dockerfile includes several security enhancements:
+
+### Image Security Features
+
+- **Distroless runtime**: No shell, no package manager, minimal attack surface
+- **Non-root execution**: Runs as user 65532:65532 (distroless default)
+- **OCI labels**: Full metadata and traceability
+- **HEALTHCHECK**: Built-in container health monitoring
+- **Secure COPY**: Application files with restrictive permissions (644)
+- **Build isolation**: Non-root user used during pip install
+
+### Runtime Security Options
+
+For maximum security in production, use these runtime flags:
+
+```bash
+docker run -d \
+  --name rc-unlock \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges:true \
+  --memory=256m \
+  --cpus=0.5 \
+  --read-only \
+  --tmpfs /tmp:noexec,nosuid,size=100m \
+  -v /path/to/inventory:/inventory:ro \
+  -v /path/to/vault.kdbx:/secrets/vault.kdbx:ro \
+  --secret ur_cdb_pw \
+  rc-unlock:secure \
+  -i /inventory/all.yml \
+  -k /secrets/vault.kdbx \
+  -e "LUKS unlock"
+```
+
+**Security flags explained:**
+- `--cap-drop=ALL`: Remove all Linux capabilities
+- `--security-opt=no-new-privileges:true`: Prevent privilege escalation
+- `--memory=256m --cpus=0.5`: Resource limits
+- `--read-only`: Read-only root filesystem
+- `--tmpfs /tmp`: Writable /tmp that disappears on container stop
 
 ## Run with Docker Secrets (Recommended)
 
@@ -120,15 +177,75 @@ services:
     restart: unless-stopped
 ```
 
+### Production-ready with security hardening:
+
+```yaml
+services:
+  rc-unlock:
+    image: rc-unlock:secure
+    volumes:
+      - ./inventory:/inventory:ro
+      - ./secrets:/secrets:ro
+    environment:
+      - UR_INVENTORY=/inventory/all.yml
+      - UR_KDBXFILE=/secrets/vault.kdbx
+      - UR_CDB_ENTRY=LUKS unlock
+      - UR_INVENTORY_GROUP=all
+      - UR_DELAY=30
+    secrets:
+      - ur_cdb_pw
+    restart: unless-stopped
+    # Security hardening
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+secrets:
+  ur_cdb_pw:
+    file: ./secrets/password.txt
+```
+
 ## Security Notes
 
+### Credential Security
 - **Docker secrets** are the recommended approach for production environments
 - **Environment variables** are visible in `docker inspect` and process lists, avoid in production
 - **Interactive mode** is the most secure but requires manual intervention
 - Mount volumes as read-only (`:ro`) when possible
-- The container runs as non-root user for additional security
 - Always protect your password files with appropriate filesystem permissions (600)
 - Remove password files from shell history: `history -c` or prefix commands with a space
+
+### Container Security
+- The container runs as non-root user (65532:65532) for additional security
+- **Distroless base image**: No shell, no package manager, minimal attack surface
+- **Build isolation**: Dependencies installed as non-root user during build
+- **Secure permissions**: Application files have restrictive permissions (644)
+- **Resource limits**: Set CPU and memory limits to prevent resource exhaustion
+- **Capability dropping**: Remove all unnecessary Linux capabilities with `--cap-drop=ALL`
+- **No new privileges**: Prevent privilege escalation attacks with `--security-opt=no-new-privileges:true`
+- **Read-only filesystem**: Run with `--read-only` flag and tmpfs for /tmp
+
+### Image Verification
+Verify the security features of your built image:
+```bash
+# Check non-root user
+docker inspect rc-unlock:secure --format 'User: {{.Config.User}}'
+
+# Verify no shell
+docker run --rm --entrypoint=/bin/sh rc-unlock:secure  # Should fail
+
+# View security labels
+docker inspect rc-unlock:secure --format '{{json .Config.Labels}}' | jq
+```
 
 ## Migration from Environment Variables to Secrets
 
