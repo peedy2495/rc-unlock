@@ -359,7 +359,7 @@ class SSHClient:
             return self.client
         except paramiko.AuthenticationException:
             raise SSHConnectionError("Authentication failed")
-        except (paramiko.SSHException, OSError, TimeoutError):
+        except (paramiko.SSHException, OSError, TimeoutError, EOFError):
             raise SSHConnectionError("Currently not in boot state")
         except Exception:
             raise SSHConnectionError("Currently not in boot state")
