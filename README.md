@@ -97,7 +97,32 @@ Password: MySecretLUKSPassword
 
 Attachments:
   - id_ed25519 (SSH Ed25519 private key file)
+
+Custom Properties:
+  - deployment_password: DeploymentPassword123 (optional)
 ```
+
+#### Optional: Deployment Password for Secure Password Updates
+
+The tool supports a **secure password update mechanism** using a custom property called `deployment_password`. This is useful for:
+
+- Post-deployment security hardening: After auto-deployments that use temporary/dummy LUKS passwords
+- Updating systems that were initially deployed with insecure default passwords
+- Rolling to secure passwords without manual intervention
+
+**How it works:**
+
+1. When the primary LUKS password fails (wrong password), the tool checks for a `deployment_password` in the KeePass entry's custom properties
+2. If found, it attempts to change the LUKS password:
+   - **Old password**: The `deployment_password` value (the temporary/dummy password from deployment)
+   - **New password**: The password stored in the KeePass entry's password field (the secure password)
+3. On success, the system reboots with the new secure password
+
+**Setting up deployment_password:**
+
+In KeePass, add a custom property to your entry:
+- Property name: `deployment_password`
+- Property value: The temporary/dummy password used during initial deployment
 
 ### Ansible Inventory
 

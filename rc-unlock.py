@@ -17,13 +17,19 @@ import yaml
 import paramiko
 from pykeepass import PyKeePass
 
+from interactive_shell import (
+    InteractiveShellSession,
+    ExpectTimeoutError,
+    SessionClosedError,
+)
+
 # Constants
 
 DEFAULT_SSH_PORT = 22022
 DEFAULT_DELAY = 30
 SLEEP_AFTER_UNLOCK = 1.0
 RECV_BUFFER_SIZE = 1024
-SUCCESS_EXIT_CODES = {0, -1}
+SUCCESS_EXIT_CODES = {0}
 ENV_VARS = {
     'inventory': 'UR_INVENTORY',
     'group': 'UR_INVENTORY_GROUP',
@@ -50,6 +56,7 @@ class Credentials:
     username: str
     luks_password: str
     private_key: str
+    default_password: Optional[str] = None
 
 
 # Custom Exceptions
@@ -264,10 +271,15 @@ def get_credentials(db_path: str, entry_title: str) -> Credentials:
         if not private_key:
             raise CredentialDBError("No private key attachment found (must start with 'id_')")
         
+        default_password = None
+        if entry.custom_properties and 'deployment_password' in entry.custom_properties:
+            default_password = entry.custom_properties.get('deployment_password')
+        
         creds = Credentials(
             username=entry.username,
             luks_password=entry.password,
-            private_key=private_key
+            private_key=private_key,
+            default_password=default_password
         )
         
         print(f"✅ Credential database entry '{entry_title}' loaded successfully.\n")
@@ -333,7 +345,7 @@ def unlock_host(host: Host, credentials: Credentials) -> bool:
     try:
         with SSHClient(host.ip, DEFAULT_SSH_PORT, credentials.username, credentials.private_key) as client:
             print(f"Host {host.ip}: ✅ SSH connection established with private key.")
-            return execute_cryptroot_unlock(client, credentials.luks_password, host.ip)
+            return execute_cryptroot_unlock(client, credentials.luks_password, host.ip, credentials.default_password)
     except SSHConnectionError as e:
         print(f"Host {host.ip}: ⚪ Probed - {e}")
         return False
@@ -387,33 +399,164 @@ def load_private_key(key_data: str) -> paramiko.PKey:
     raise ValueError("Unknown or invalid private key format")
 
 
-def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, host_ip: str) -> bool:
-    """Execute cryptroot-unlock on remote host."""
+def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, host_ip: str, default_password: Optional[str] = None) -> bool:
+    """Execute cryptroot-unlock on remote host using interactive shell."""
     print(f"Host {host_ip}: 🔓 Executing cryptroot-unlock...")
     
-    stdin, stdout, stderr = client.exec_command('cryptroot-unlock', get_pty=True)
-    time.sleep(SLEEP_AFTER_UNLOCK)
-    
-    stdin.write(luks_password + '\n')
-    stdin.flush()
-    stdin.channel.shutdown_write()
-    
-    while not stdout.channel.exit_status_ready():
-        if stdout.channel.recv_ready():
-            stdout.channel.recv(RECV_BUFFER_SIZE)
-        time.sleep(0.1)
-    
-    exit_status = stdout.channel.exit_status
-    
-    if exit_status in SUCCESS_EXIT_CODES:
-        print(f"Host {host_ip}: ✅ Unlock successful!")
-        return True
-    else:
-        error_output = stderr.read().decode()
-        print(f"Host {host_ip}: ❌ Error during unlock (Exit Code: {exit_status})")
-        if error_output:
-            print(f"Error: {error_output}")
+    try:
+        session = InteractiveShellSession(client, timeout=10.0)
+        session.open()
+        print(f"Host {host_ip}: 📡 Interactive shell session opened")
+        
+    except Exception as e:
+        print(f"Host {host_ip}: ❌ Failed to open interactive shell: {e}")
         return False
+    
+    try:
+        session.sendline("cryptroot-unlock")
+        
+        try:
+            output = session.expect(r"(Please unlock|Enter passphrase|UNLOCK)", timeout=15.0)
+            print(f"Host {host_ip}: 🔑 Password prompt detected")
+        except ExpectTimeoutError as e:
+            print(f"Host {host_ip}: ⚠️  Did not get passphrase prompt: {e}")
+            session.close()
+            return False
+        except SessionClosedError:
+            print(f"Host {host_ip}: ❌ Session closed unexpectedly")
+            return False
+        
+        session.sendline(luks_password)
+        
+        try:
+            output = session.expect(r"set up successfully|bad password or options\?", timeout=15.0)
+        except ExpectTimeoutError:
+            print(f"Host {host_ip}: ⚠️  Timeout waiting for unlock result, checking buffer...")
+            output = session.get_buffer()
+        except SessionClosedError:
+            print(f"Host {host_ip}: 📝 Session closed (may indicate reboot)")
+            output = session.get_buffer()
+        
+        if "set up successfully" in output:
+            print(f"Host {host_ip}: ✅ Unlock successful!")
+            session.close()
+            return True
+        
+        if "bad password" in output:
+            print(f"Host {host_ip}: ❌ Wrong password")
+            session.close()
+            
+            if default_password:
+                print(f"Host {host_ip}: 🔄 Trying to change LUKS password...")
+                
+                try:
+                    session2 = InteractiveShellSession(client, timeout=10.0)
+                    session2.open()
+                except Exception as e:
+                    print(f"Host {host_ip}: ❌ Failed to open session for password change: {e}")
+                    return False
+                
+                device = get_luks_device_interactive(session2, host_ip)
+                if not device:
+                    session2.close()
+                    return False
+                
+                if not change_luks_password_interactive(session2, device, default_password, luks_password, host_ip):
+                    session2.close()
+                    return False
+                
+                print(f"Host {host_ip}: 🔄 Rebooting in 5 seconds...")
+                session2.sendline("reboot -f")
+                
+                try:
+                    session2.wait_for_close(timeout=5)
+                except Exception:
+                    pass
+                session2.close()
+                
+                return True
+            
+            return False
+        
+        print(f"Host {host_ip}: ⚠️  Unknown response from cryptroot-unlock")
+        print(f"Output: {output[-500:]}")
+        session.close()
+        return False
+        
+    except Exception as e:
+        print(f"Host {host_ip}: ❌ Unexpected error during unlock: {e}")
+        try:
+            session.close()
+        except Exception:
+            pass
+        return False
+
+
+def get_luks_device_interactive(session: InteractiveShellSession, host_ip: str) -> Optional[str]:
+    """Get the first LUKS device on the remote host using interactive shell."""
+    print(f"Host {host_ip}: 🔍 Determining LUKS device...")
+    
+    session.clear_buffer()
+    
+    session.sendline("/usr/sbin/blkid")
+    time.sleep(0.5)
+    
+    try:
+        output = session.expect(r"(#|\$)", timeout=10.0)
+    except ExpectTimeoutError:
+        output = session.get_buffer()
+    except SessionClosedError:
+        output = session.get_buffer()
+    
+    full_buffer = session.get_buffer()
+    lines = full_buffer.strip().split('\n')
+    
+    device = None
+    for line in lines:
+        line = line.strip()
+        if line.startswith('/dev/') and 'LUKS' in line:
+            device = line.split(':')[0]
+            break
+    
+    if not device:
+        print(f"Host {host_ip}: ❌ No LUKS device found, buffer: {full_buffer[-200:]}")
+        return None
+    
+    print(f"Host {host_ip}: 📁 Found LUKS device: {device}")
+    return device
+
+
+def change_luks_password_interactive(
+    session: InteractiveShellSession,
+    device: str,
+    old_password: str,
+    new_password: str,
+    host_ip: str
+) -> bool:
+    """Change the LUKS password on the remote host using interactive shell."""
+    print(f"Host {host_ip}: 🔐 Changing LUKS password on {device}...")
+    
+    session.clear_buffer()
+    
+    cmd = f"echo -e '{old_password}\\n{new_password}\\n{new_password}\\n' | /usr/sbin/cryptsetup luksChangeKey {device} --key-slot 0 --batch-mode 2>&1"
+    
+    try:
+        session.sendline(cmd)
+        time.sleep(1)
+        output = session.expect(r"(#|\$|success|failed|Error|Command)", timeout=30.0)
+    except ExpectTimeoutError:
+        print(f"Host {host_ip}: ⚠️  Timeout during password change, checking result...")
+        output = session.get_buffer()
+    except SessionClosedError:
+        print(f"Host {host_ip}: 📝 Session closed (may indicate success)")
+        output = session.get_buffer()
+    
+    if "failed" in output.lower() or "error" in output.lower():
+        print(f"Host {host_ip}: ❌ Failed to change LUKS password")
+        return False
+    
+    print(f"Host {host_ip}: ✅ LUKS password changed successfully!")
+    return True
 
 
 # Utilities
@@ -425,6 +568,7 @@ def countdown_timer(seconds: int) -> None:
         sys.stdout.flush()
         time.sleep(1)
     sys.stdout.write("\r" + " " * 50 + "\r")
+    sys.stdout.flush()
     sys.stdout.flush()
 
 
