@@ -122,7 +122,7 @@ COPY --from=builder /opt/venv /opt/venv
 # Security: Copy application with specific ownership and permissions
 # 65532:65532 is the distroless non-root user/group
 # 644 permissions: owner read/write, group read, others read
-COPY --chown=65532:65532 --chmod=644 rc-unlock.py interactive_shell.py .
+COPY --chown=65532:65532 --chmod=644 rc-unlock.py interactive_shell.py /app/
 
 # Set environment - include venv site-packages in Python path
 ENV PATH="/opt/venv/bin:/usr/local/bin:$PATH" \
