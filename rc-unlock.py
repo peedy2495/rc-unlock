@@ -340,14 +340,14 @@ def process_hosts(hosts: List[Host], credentials: Credentials) -> Tuple[int, int
 def unlock_host(host: Host, credentials: Credentials) -> bool:
     """Attempt to unlock a single host."""
     print(f"🖥️  Processing host: {host.name} @ {host.ip} [{host.path}]")
-    print(f"Host {host.ip}: 🔗 Connecting to {host.ip}:{DEFAULT_SSH_PORT} as {credentials.username}...")
+    print(f"\t🔗 Connecting to {host.ip}:{DEFAULT_SSH_PORT} as {credentials.username}...")
     
     try:
         with SSHClient(host.ip, DEFAULT_SSH_PORT, credentials.username, credentials.private_key) as client:
-            print(f"Host {host.ip}: ✅ SSH connection established with private key.")
+            print(f"\t✅ SSH connection established with private key.")
             return execute_cryptroot_unlock(client, credentials.luks_password, host.ip, credentials.default_password)
     except SSHConnectionError as e:
-        print(f"Host {host.ip}: ⚪ Probed - {e}")
+        print(f"\t⚪ Probed - {e}")
         return False
 
 
@@ -401,15 +401,15 @@ def load_private_key(key_data: str) -> paramiko.PKey:
 
 def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, host_ip: str, default_password: Optional[str] = None) -> bool:
     """Execute cryptroot-unlock on remote host using interactive shell."""
-    print(f"Host {host_ip}: 🔓 Executing cryptroot-unlock...")
+    print(f"\t🔓 Executing cryptroot-unlock...")
     
     try:
         session = InteractiveShellSession(client, timeout=10.0)
         session.open()
-        print(f"Host {host_ip}: 📡 Interactive shell session opened")
+        print(f"\t📡 Interactive shell session opened")
         
     except Exception as e:
-        print(f"Host {host_ip}: ❌ Failed to open interactive shell: {e}")
+        print(f"\t❌ Failed to open interactive shell: {e}")
         return False
     
     try:
@@ -417,13 +417,13 @@ def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, hos
         
         try:
             output = session.expect(r"(Please unlock|Enter passphrase|UNLOCK)", timeout=15.0)
-            print(f"Host {host_ip}: 🔑 Password prompt detected")
+            print(f"\t🔑 Password prompt detected")
         except ExpectTimeoutError as e:
-            print(f"Host {host_ip}: ⚠️  Did not get passphrase prompt: {e}")
+            print(f"\t⚠️  Did not get passphrase prompt: {e}")
             session.close()
             return False
         except SessionClosedError:
-            print(f"Host {host_ip}: ❌ Session closed unexpectedly")
+            print(f"\t❌ Session closed unexpectedly")
             return False
         
         session.sendline(luks_password)
@@ -431,29 +431,29 @@ def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, hos
         try:
             output = session.expect(r"set up successfully|bad password or options\?", timeout=15.0)
         except ExpectTimeoutError:
-            print(f"Host {host_ip}: ⚠️  Timeout waiting for unlock result, checking buffer...")
+            print(f"\t⚠️  Timeout waiting for unlock result, checking buffer...")
             output = session.get_buffer()
         except SessionClosedError:
-            print(f"Host {host_ip}: 📝 Session closed (may indicate reboot)")
+            print(f"\t📝 Session closed (may indicate reboot)")
             output = session.get_buffer()
         
         if "set up successfully" in output:
-            print(f"Host {host_ip}: ✅ Unlock successful!")
+            print(f"\t✅ Unlock successful!")
             session.close()
             return True
         
         if "bad password" in output:
-            print(f"Host {host_ip}: ❌ Wrong password")
+            print(f"\t❌ Wrong password")
             session.close()
             
             if default_password:
-                print(f"Host {host_ip}: 🔄 Trying to change LUKS password...")
+                print(f"\t🔄 Trying to change LUKS password...")
                 
                 try:
                     session2 = InteractiveShellSession(client, timeout=10.0)
                     session2.open()
                 except Exception as e:
-                    print(f"Host {host_ip}: ❌ Failed to open session for password change: {e}")
+                    print(f"\t❌ Failed to open session for password change: {e}")
                     return False
                 
                 device = get_luks_device_interactive(session2, host_ip)
@@ -465,7 +465,7 @@ def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, hos
                     session2.close()
                     return False
                 
-                print(f"Host {host_ip}: 🔄 Rebooting in 5 seconds...")
+                print(f"\t🔄 Rebooting in 5 seconds...")
                 session2.sendline("reboot -f")
                 
                 try:
@@ -474,17 +474,17 @@ def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, hos
                     pass
                 session2.close()
                 
-                return True
+                return False
             
             return False
         
-        print(f"Host {host_ip}: ⚠️  Unknown response from cryptroot-unlock")
+        print(f"\t⚠️  Unknown response from cryptroot-unlock")
         print(f"Output: {output[-500:]}")
         session.close()
         return False
         
     except Exception as e:
-        print(f"Host {host_ip}: ❌ Unexpected error during unlock: {e}")
+        print(f"\t❌ Unexpected error during unlock: {e}")
         try:
             session.close()
         except Exception:
@@ -494,7 +494,7 @@ def execute_cryptroot_unlock(client: paramiko.SSHClient, luks_password: str, hos
 
 def get_luks_device_interactive(session: InteractiveShellSession, host_ip: str) -> Optional[str]:
     """Get the first LUKS device on the remote host using interactive shell."""
-    print(f"Host {host_ip}: 🔍 Determining LUKS device...")
+    print(f"\t🔍 Determining LUKS device...")
     
     session.clear_buffer()
     
@@ -519,10 +519,10 @@ def get_luks_device_interactive(session: InteractiveShellSession, host_ip: str) 
             break
     
     if not device:
-        print(f"Host {host_ip}: ❌ No LUKS device found, buffer: {full_buffer[-200:]}")
+        print(f"\t❌ No LUKS device found, buffer: {full_buffer[-200:]}")
         return None
     
-    print(f"Host {host_ip}: 📁 Found LUKS device: {device}")
+    print(f"\t📁 Found LUKS device: {device}")
     return device
 
 
@@ -534,7 +534,7 @@ def change_luks_password_interactive(
     host_ip: str
 ) -> bool:
     """Change the LUKS password on the remote host using interactive shell."""
-    print(f"Host {host_ip}: 🔐 Changing LUKS password on {device}...")
+    print(f"\t🔐 Changing LUKS password on {device}...")
     
     session.clear_buffer()
     
@@ -545,17 +545,17 @@ def change_luks_password_interactive(
         time.sleep(1)
         output = session.expect(r"(#|\$|success|failed|Error|Command)", timeout=30.0)
     except ExpectTimeoutError:
-        print(f"Host {host_ip}: ⚠️  Timeout during password change, checking result...")
+        print(f"\t⚠️  Timeout during password change, checking result...")
         output = session.get_buffer()
     except SessionClosedError:
-        print(f"Host {host_ip}: 📝 Session closed (may indicate success)")
+        print(f"\t📝 Session closed (may indicate success)")
         output = session.get_buffer()
     
     if "failed" in output.lower() or "error" in output.lower():
-        print(f"Host {host_ip}: ❌ Failed to change LUKS password")
+        print(f"\t❌ Failed to change LUKS password")
         return False
     
-    print(f"Host {host_ip}: ✅ LUKS password changed successfully!")
+    print(f"\t✅ LUKS password changed successfully!")
     return True
 
 
